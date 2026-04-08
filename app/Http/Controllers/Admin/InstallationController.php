@@ -155,6 +155,25 @@ class InstallationController extends Controller
         ]);
     }
 
+    public function entitlements(Installation $installation): JsonResponse
+    {
+        $installation->load('limits', 'usages');
+
+        $usages = $installation->usages->mapWithKeys(fn ($u) => [$u->metric => $u->value]);
+        $limits = $installation->limits->mapWithKeys(fn ($l) => [$l->key => $l->value]);
+
+        return response()->json([
+            'installation_id' => $installation->id,
+            'product' => $installation->product->value,
+            'status' => $installation->status->value,
+            'plan' => $installation->plan->value,
+            'expires_at' => $installation->expires_at?->toIso8601String(),
+            'is_expired' => $installation->isExpired(),
+            'limits' => $limits,
+            'usage' => $usages,
+        ]);
+    }
+
     public function regenerateApiKey(Installation $installation): JsonResponse
     {
         $plainKey = Str::random(48);
