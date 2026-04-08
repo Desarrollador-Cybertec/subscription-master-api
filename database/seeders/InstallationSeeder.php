@@ -10,23 +10,19 @@ use Illuminate\Support\Str;
 
 class InstallationSeeder extends Seeder
 {
-    /**
-     * Seed demo installations for testing.
-     *
-     * API Keys (raw, for testing only):
-     *   S!NTyC:      sintyc-test-key-2026
-     *   Chronology:  chronology-test-key-2026
-     */
     public function run(): void
     {
-        // S!NTyC Installation
+        $sintycKey = Str::random(48);
+        $chronologyKey = Str::random(48);
+
+        // ─── S!NTyC ─────────────────────────────────────────
         $sintyc = Installation::create([
             'id' => Str::uuid()->toString(),
             'product' => 'sintyc',
-            'domain' => 'api.sintyc-demo.com',
+            'domain' => 'service.cyberteconline.com',
             'status' => 'active',
             'plan' => 'enterprise',
-            'api_key_hash' => hash('sha256', 'sintyc-test-key-2026'),
+            'api_key_hash' => hash('sha256', $sintycKey),
             'expires_at' => now()->addYear(),
         ]);
 
@@ -39,18 +35,18 @@ class InstallationSeeder extends Seeder
         InstallationUsage::create([
             'installation_id' => $sintyc->id,
             'metric' => 'users_active',
-            'value' => 8,
+            'value' => 0,
             'period' => null,
         ]);
 
-        // Chronology Installation
+        // ─── Chronology ─────────────────────────────────────
         $chronology = Installation::create([
             'id' => Str::uuid()->toString(),
             'product' => 'chronology',
-            'domain' => 'api.chronology-demo.com',
+            'domain' => 'api.cyberteconline.com',
             'status' => 'active',
             'plan' => 'enterprise',
-            'api_key_hash' => hash('sha256', 'chronology-test-key-2026'),
+            'api_key_hash' => hash('sha256', $chronologyKey),
             'expires_at' => now()->addYear(),
         ]);
 
@@ -63,8 +59,25 @@ class InstallationSeeder extends Seeder
         InstallationUsage::create([
             'installation_id' => $chronology->id,
             'metric' => 'executions',
-            'value' => 3200,
+            'value' => 0,
             'period' => now()->format('Y-m'),
         ]);
+
+        // ─── Output ─────────────────────────────────────────
+        $this->command->newLine();
+        $this->command->info('╔══════════════════════════════════════════════════════════════╗');
+        $this->command->info('║          INSTALLATIONS CREATED — SAVE THESE KEYS!           ║');
+        $this->command->info('╠══════════════════════════════════════════════════════════════╣');
+        $this->command->newLine();
+        $this->command->warn("  S!NTyC  (service.cyberteconline.com)");
+        $this->command->line("  Installation ID : {$sintyc->id}");
+        $this->command->line("  API Key         : {$sintycKey}");
+        $this->command->newLine();
+        $this->command->warn("  Chronology  (api.cyberteconline.com)");
+        $this->command->line("  Installation ID : {$chronology->id}");
+        $this->command->line("  API Key         : {$chronologyKey}");
+        $this->command->newLine();
+        $this->command->info('╚══════════════════════════════════════════════════════════════╝');
+        $this->command->newLine();
     }
 }
