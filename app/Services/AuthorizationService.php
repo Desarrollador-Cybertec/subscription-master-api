@@ -14,8 +14,11 @@ class AuthorizationService
     /**
      * Authorize an action for an installation.
      * Fail-closed: unknown actions or missing config → denied.
+     *
+     * When $consume is true, usage is recorded atomically on approval,
+     * removing the need for a separate POST /usage call.
      */
-    public function authorize(Installation $installation, string $action, int $quantity = 1): array
+    public function authorize(Installation $installation, string $action, int $quantity = 1, bool $consume = false, ?string $referenceId = null): array
     {
         // Suspended installations are fully blocked
         if ($installation->isSuspended()) {
@@ -62,6 +65,21 @@ class AuthorizationService
                     $currentUsage,
                     $remaining
                 );
+            }
+
+            // Atomically record usage if consume mode is enabled
+            if ($consume) {
+                // Idempotency: skip if reference_id was already processed
+                $alreadyRecorded = $referenceId
+                    ? AuditLog::where('installation_id', $installation->id)
+                        ->where('reference_id', $referenceId)
+                        ->exists()
+                    : false;
+
+                if (!$alreadyRecorded) {
+                    $this->incrementUsage($installation, $metric, $quantity, $period);
+                    $currentUsage += $quantity;
+                }
             }
 
             return $this->allowed(
@@ -156,6 +174,23 @@ class AuthorizationService
             ->where('metric', $metric)
             ->where('period', $period)
             ->value('value');
+    }
+
+    private function incrementUsage(Installation $installation, string $metric, int $quantity, ?string $period): void
+    {
+        $usage = InstallationUsage::firstOrCreate(
+            [
+                'installation_id' => $installation->id,
+                'metric' => $metric,
+                'period' => $period,
+            ],
+            ['value' => 0]
+        );
+
+        $safeValue = (int) $quantity;
+        DB::table('installation_usages')
+            ->where('id', $usage->id)
+            ->update(['value' => DB::raw('CASE WHEN value + ' . $safeValue . ' > 0 THEN value + ' . $safeValue . ' ELSE 0 END')]);
     }
 
     private function normalizeMetric(string $metric): string

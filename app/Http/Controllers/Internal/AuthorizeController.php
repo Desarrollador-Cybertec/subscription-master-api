@@ -18,10 +18,26 @@ class AuthorizeController extends Controller
     {
         $installation = $request->attributes->get('installation');
 
+        $consume = (bool) $request->input('consume', false);
+        $referenceId = $request->input('reference_id');
+
+        // Idempotency: if consume + reference_id already processed, return cached response
+        if ($consume && $referenceId) {
+            $existing = AuditLog::where('installation_id', $installation->id)
+                ->where('reference_id', $referenceId)
+                ->first();
+
+            if ($existing) {
+                return response()->json($existing->response_data, $existing->response_data['allowed'] ? 200 : 403);
+            }
+        }
+
         $result = $this->authorizationService->authorize(
             $installation,
             $request->input('action'),
             $request->integer('quantity', 1),
+            $consume,
+            $referenceId,
         );
 
         AuditLog::create([
@@ -30,6 +46,7 @@ class AuthorizeController extends Controller
             'result' => $result['allowed'] ? 'allowed' : 'denied',
             'request_data' => $request->validated(),
             'response_data' => $result,
+            'reference_id' => $consume ? $referenceId : null,
             'ip_address' => $request->ip(),
         ]);
 

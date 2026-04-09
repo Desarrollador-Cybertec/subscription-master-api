@@ -18,6 +18,8 @@ class AuthorizeRequest extends FormRequest
             'product' => 'sometimes|string|in:sintyc,chronology',
             'action' => 'required|string|max:100',
             'quantity' => 'sometimes|integer|min:1',
+            'consume' => 'sometimes|boolean',
+            'reference_id' => 'sometimes|string|max:255',
         ];
     }
 }
