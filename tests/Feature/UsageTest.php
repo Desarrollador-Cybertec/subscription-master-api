@@ -147,4 +147,51 @@ class UsageTest extends TestCase
                 'usage' => ['executions' => 1],
             ]);
     }
+
+    public function test_usage_decrement_reduces_counter(): void
+    {
+        // Record 3 executions first
+        $this->postJson('/api/internal/usage', [
+            'metric' => 'execution',
+            'value' => 3,
+        ], ['X-API-Key' => $this->apiKey]);
+
+        // Decrement by 1
+        $response = $this->postJson('/api/internal/usage', [
+            'metric' => 'execution',
+            'value' => -1,
+        ], ['X-API-Key' => $this->apiKey]);
+
+        $response->assertOk()
+            ->assertJson([
+                'recorded' => true,
+                'metric' => 'executions',
+                'current' => 2,
+            ]);
+    }
+
+    public function test_usage_decrement_floors_at_zero(): void
+    {
+        // Start at 0 (no prior usage)
+        $response = $this->postJson('/api/internal/usage', [
+            'metric' => 'execution',
+            'value' => -5,
+        ], ['X-API-Key' => $this->apiKey]);
+
+        $response->assertOk()
+            ->assertJson([
+                'recorded' => true,
+                'current' => 0, // cannot go below 0
+            ]);
+    }
+
+    public function test_usage_rejects_value_outside_allowed_range(): void
+    {
+        $response = $this->postJson('/api/internal/usage', [
+            'metric' => 'execution',
+            'value' => -9999,
+        ], ['X-API-Key' => $this->apiKey]);
+
+        $response->assertUnprocessable();
+    }
 }

@@ -17,7 +17,7 @@ class UsageReportRequest extends FormRequest
             'installation_id' => 'sometimes|uuid',
             'product' => 'sometimes|string|in:sintyc,chronology',
             'metric' => 'required|string|max:100',
-            'value' => 'required|integer|min:1',
+            'value' => 'required|integer|between:-1000,1000000',
             'reference_id' => 'nullable|string|max:255',
         ];
     }

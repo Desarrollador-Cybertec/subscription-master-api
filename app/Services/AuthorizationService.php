@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Installation;
 use App\Models\InstallationUsage;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class AuthorizationService
 {
@@ -103,8 +104,11 @@ class AuthorizationService
             ['value' => 0]
         );
 
-        // Atomic increment
-        InstallationUsage::where('id', $usage->id)->increment('value', $value);
+        // Atomic update — CASE prevents the counter from going below zero on decrements
+        $safeValue = (int) $value;
+        DB::table('installation_usages')
+            ->where('id', $usage->id)
+            ->update(['value' => DB::raw('CASE WHEN value + ' . $safeValue . ' > 0 THEN value + ' . $safeValue . ' ELSE 0 END')]);
         $usage->refresh();
 
         return [
