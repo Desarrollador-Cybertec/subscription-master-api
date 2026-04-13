@@ -191,6 +191,63 @@ class InstallationController extends Controller
         ]);
     }
 
+    /**
+     * Manually set (override) a usage metric to an absolute value.
+     * Use this to correct counters that drifted due to missing decrements.
+     */
+    public function syncUsage(Request $request, Installation $installation): JsonResponse
+    {
+        $data = $request->validate([
+            'metric' => 'required|string|max:100',
+            'value'  => 'required|integer|min:0',
+        ]);
+
+        $metric = $data['metric'];
+        $value  = $data['value'];
+
+        // Support aliases (e.g. user_active → users_active)
+        $aliases = config('subscription.metric_aliases', []);
+        $metric  = $aliases[$metric] ?? $metric;
+
+        // Determine period (same logic as AuthorizationService)
+        $periodicMetrics = ['executions'];
+        $period = in_array($metric, $periodicMetrics) ? Carbon::now()->format('Y-m') : null;
+
+        $usage = InstallationUsage::firstOrCreate(
+            [
+                'installation_id' => $installation->id,
+                'metric'          => $metric,
+                'period'          => $period,
+            ],
+            ['value' => 0]
+        );
+
+        $previousValue = $usage->value;
+        $usage->update(['value' => $value]);
+
+        AuditLog::create([
+            'installation_id' => $installation->id,
+            'action'          => "admin:sync_usage:{$metric}",
+            'result'          => 'corrected',
+            'request_data'    => $data,
+            'response_data'   => [
+                'metric'   => $metric,
+                'previous' => $previousValue,
+                'current'  => $value,
+                'period'   => $period,
+            ],
+            'reference_id' => null,
+            'ip_address'   => $request->ip(),
+        ]);
+
+        return response()->json([
+            'metric'   => $metric,
+            'previous' => $previousValue,
+            'current'  => $value,
+            'period'   => $period,
+        ]);
+    }
+
     public function auditLogs(Request $request, Installation $installation): JsonResponse
     {
         $logs = AuditLog::where('installation_id', $installation->id)

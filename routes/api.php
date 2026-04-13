@@ -30,6 +30,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/installations/{installation}', [InstallationController::class, 'show']);
     Route::put('/installations/{installation}', [InstallationController::class, 'update']);
     Route::get('/installations/{installation}/entitlements', [InstallationController::class, 'entitlements']);
+    Route::patch('/installations/{installation}/usage', [InstallationController::class, 'syncUsage']);
     Route::post('/installations/{installation}/regenerate-key', [InstallationController::class, 'regenerateApiKey']);
     Route::get('/installations/{installation}/audit-logs', [InstallationController::class, 'auditLogs']);
 });
