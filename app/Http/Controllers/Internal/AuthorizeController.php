@@ -21,14 +21,16 @@ class AuthorizeController extends Controller
         $consume = (bool) $request->input('consume', false);
         $referenceId = $request->input('reference_id');
 
-        // Idempotency: if consume + reference_id already processed, return cached response
+        // Idempotency: if consume + reference_id was already ALLOWED, return cached response.
+        // Denied responses are NOT cached: the client should be able to retry after a limit increase.
         if ($consume && $referenceId) {
             $existing = AuditLog::where('installation_id', $installation->id)
                 ->where('reference_id', $referenceId)
+                ->where('result', 'allowed')
                 ->first();
 
             if ($existing) {
-                return response()->json($existing->response_data, $existing->response_data['allowed'] ? 200 : 403);
+                return response()->json($existing->response_data, 200);
             }
         }
 

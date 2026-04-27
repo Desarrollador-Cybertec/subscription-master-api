@@ -69,10 +69,12 @@ class AuthorizationService
 
             // Atomically record usage if consume mode is enabled
             if ($consume) {
-                // Idempotency: skip if reference_id was already processed
+                // Idempotency: skip if reference_id was already ALLOWED (usage was already consumed).
+                // Denied entries are not counted — the client may retry after a limit increase.
                 $alreadyRecorded = $referenceId
                     ? AuditLog::where('installation_id', $installation->id)
                         ->where('reference_id', $referenceId)
+                        ->where('result', 'allowed')
                         ->exists()
                     : false;
 
