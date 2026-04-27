@@ -54,42 +54,69 @@ class AuthorizationService
             }
 
             $period = ($actionConfig['periodic'] ?? false) ? Carbon::now()->format('Y-m') : null;
-            $currentUsage = $this->getCurrentUsage($installation, $metric, $period);
-            $remaining = max(0, $limit->value - $currentUsage);
 
-            if ($currentUsage + $quantity > $limit->value) {
-                return $this->denied(
-                    'Limit exceeded',
+            // Wrap check + optional increment in a transaction with a row-level lock so that
+            // concurrent requests cannot both pass the limit check and over-count past it.
+            $result = DB::transaction(function () use (
+                $installation, $metric, $period, $quantity, $limit, $consume, $referenceId
+            ): array {
+                // Lock the usage row for the duration of this transaction.
+                $usage = InstallationUsage::where('installation_id', $installation->id)
+                    ->where('metric', $metric)
+                    ->where('period', $period)
+                    ->lockForUpdate()
+                    ->first();
+
+                $currentUsage = $usage ? $usage->value : 0;
+                $remaining = max(0, $limit->value - $currentUsage);
+
+                if ($currentUsage + $quantity > $limit->value) {
+                    return $this->denied(
+                        'Limit exceeded',
+                        $installation->status->value,
+                        $limit->value,
+                        $currentUsage,
+                        $remaining
+                    );
+                }
+
+                // Record usage if consume mode is enabled
+                if ($consume) {
+                    // Idempotency: skip if reference_id was already ALLOWED (usage was already consumed).
+                    // Denied entries are not counted — the client may retry after a limit increase.
+                    $alreadyRecorded = $referenceId
+                        ? AuditLog::where('installation_id', $installation->id)
+                            ->where('reference_id', $referenceId)
+                            ->where('result', 'allowed')
+                            ->exists()
+                        : false;
+
+                    if (!$alreadyRecorded) {
+                        if ($usage) {
+                            DB::table('installation_usages')
+                                ->where('id', $usage->id)
+                                ->update(['value' => DB::raw('value + ' . (int) $quantity)]);
+                        } else {
+                            InstallationUsage::create([
+                                'installation_id' => $installation->id,
+                                'metric'          => $metric,
+                                'period'          => $period,
+                                'value'           => $quantity,
+                            ]);
+                        }
+                        $currentUsage += $quantity;
+                    }
+                }
+
+                return $this->allowed(
                     $installation->status->value,
                     $limit->value,
                     $currentUsage,
-                    $remaining
+                    max(0, $limit->value - $currentUsage)
                 );
-            }
+            });
 
-            // Atomically record usage if consume mode is enabled
-            if ($consume) {
-                // Idempotency: skip if reference_id was already ALLOWED (usage was already consumed).
-                // Denied entries are not counted — the client may retry after a limit increase.
-                $alreadyRecorded = $referenceId
-                    ? AuditLog::where('installation_id', $installation->id)
-                        ->where('reference_id', $referenceId)
-                        ->where('result', 'allowed')
-                        ->exists()
-                    : false;
-
-                if (!$alreadyRecorded) {
-                    $this->incrementUsage($installation, $metric, $quantity, $period);
-                    $currentUsage += $quantity;
-                }
-            }
-
-            return $this->allowed(
-                $installation->status->value,
-                $limit->value,
-                $currentUsage,
-                max(0, $limit->value - $currentUsage)
-            );
+            return $result;
         }
 
         // Status-only check passed

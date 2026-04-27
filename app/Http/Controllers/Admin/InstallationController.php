@@ -128,6 +128,14 @@ class InstallationController extends Controller
 
         $installation->update(collect($data)->only(['domain', 'status', 'plan', 'expires_at'])->toArray());
 
+        // Map limit keys to their corresponding usage metrics and whether they are periodic.
+        $limitKeyMetricMap = [
+            'max_users'              => ['metric' => 'users_active', 'periodic' => false],
+            'executions_per_month'   => ['metric' => 'executions',   'periodic' => true],
+        ];
+
+        $usageWarnings = [];
+
         if (isset($data['limits'])) {
             foreach ($data['limits'] as $limit) {
                 InstallationLimit::updateOrCreate(
@@ -137,12 +145,35 @@ class InstallationController extends Controller
                     ],
                     ['value' => $limit['value']]
                 );
+
+                // Warn if the new limit is below current usage — this will immediately cause
+                // license_denied for the client's running jobs.
+                $mapping = $limitKeyMetricMap[$limit['key']] ?? null;
+                if ($mapping) {
+                    $period = $mapping['periodic'] ? Carbon::now()->format('Y-m') : null;
+                    $currentUsage = (int) InstallationUsage::where('installation_id', $installation->id)
+                        ->where('metric', $mapping['metric'])
+                        ->where('period', $period)
+                        ->value('value');
+
+                    if ($currentUsage > $limit['value']) {
+                        $usageWarnings[] = [
+                            'limit_key'     => $limit['key'],
+                            'metric'        => $mapping['metric'],
+                            'new_limit'     => $limit['value'],
+                            'current_usage' => $currentUsage,
+                            'message'       => "Current usage ({$currentUsage}) exceeds the new limit ({$limit['value']}). "
+                                . "All '{$limit['key']}'-gated actions will be denied until usage drops below the limit. "
+                                . "Use PATCH /installations/{$installation->id}/usage to correct the counter.",
+                        ];
+                    }
+                }
             }
         }
 
         $installation->load('limits', 'usages');
 
-        return response()->json([
+        $response = [
             'id' => $installation->id,
             'product' => $installation->product->value,
             'domain' => $installation->domain,
@@ -152,7 +183,13 @@ class InstallationController extends Controller
             'is_expired' => $installation->isExpired(),
             'limits' => $installation->limits->mapWithKeys(fn ($l) => [$l->key => $l->value]),
             'usage' => $installation->usages->mapWithKeys(fn ($u) => [$u->metric => $u->value]),
-        ]);
+        ];
+
+        if (!empty($usageWarnings)) {
+            $response['warnings'] = $usageWarnings;
+        }
+
+        return response()->json($response);
     }
 
     public function entitlements(Installation $installation): JsonResponse
